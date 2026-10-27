@@ -299,7 +299,7 @@ function render(){
     const b=el("span","badge",c.s);b.style.setProperty("--c",c.c);li.append(b);
     const mid=el("div");mid.style.minWidth="0";mid.append(el("div","pname",p.name));
     const m=el("div","meta");m.append(el("span",null,c.k));if(p.menu)m.append(el("span",null,p.menu));if(p.rating)m.append(el("span","stars",stars(p.rating)));
-    if(p.pending)m.append(el("span","tag soft","이름·위치 자동으로 찾는 중"));
+    if(p.pending)m.append(el("span","tag soft","정보 확인 중"));
     else if(!hasLoc(p))m.append(el("span","tag","위치 미정"));else if(p.approx)m.append(el("span","tag soft","대략 위치"));
     if(p.author)m.append(el("span",null,"by "+p.author));
     mid.append(m);if(p.note)mid.append(el("div","pnote",p.note));
@@ -496,8 +496,8 @@ $("fPaste").addEventListener("input",async()=>{
   if(!r.name&&!r.addr&&r.url){
     const m=$("fPasteMsg");
     if(r.lat!=null){form.lat=r.lat;form.lng=r.lng;form.approx=false;form.addr=await reverseArea(r.lat,r.lng);paintLoc();paintPreview();
-      m.className="hint ok";m.textContent="‘추가’를 누르면 끝이에요. 가게 이름과 정보는 몇 분 안에 자동으로 채워져요.";}
-    else{m.className="hint ok";m.textContent="‘추가’를 누르면 끝이에요. 가게 이름과 위치는 몇 분 안에 자동으로 채워져요.";paintPreview();}
+      m.className="hint ok";m.textContent="‘추가’를 누르면 정확한 위치에 핀이 찍혀요. 가게 이름은 ‘링크로 추가한 장소’로 올라가고, 정보가 확인되면 채워져요.";}
+    else{m.className="hint ok";m.textContent="‘추가’를 누르면 링크로 저장돼요. 가게 이름과 위치는 정보가 확인되면 채워져요.";paintPreview();}
     return}
   if(!r.addr){const m=$("fPasteMsg");m.className="hint warn";m.textContent="주소가 없어서 위치를 찾을 수 없어요. 공유 내용을 통째로 붙여넣거나 ‘지도에서 찍기’를 써주세요.";return}
   form.lat=form.lng=null;await locate();
@@ -515,7 +515,7 @@ $("form").addEventListener("submit",async e=>{
   const d={name,cat:form.cat,menu:form.menu.trim(),note:form.note.trim(),rating:form.rating||0,link,addr:form.addr.trim(),author:form.author.trim(),lat:hasLoc(form)?form.lat:null,lng:hasLoc(form)?form.lng:null,approx:!!form.approx,updatedAt:Date.now()};
   if(pending){d.pending=true;d.resolveTries=0}
   $("fSave").disabled=true;
-  try{if(form.id)await store.update(form.id,d);else await store.add({...d,createdAt:Date.now()});const n=!form.id;closeForm();toast(n?(pending?"추가했어요. 이름·위치는 몇 분 안에 채워져요":"추가했어요"):"저장했어요")}
+  try{if(form.id)await store.update(form.id,d);else await store.add({...d,createdAt:Date.now()});const n=!form.id;closeForm();toast(n?(pending?"링크로 추가했어요":"추가했어요"):"저장했어요")}
   catch(err){$("fErr").textContent="저장하지 못했어요. 인터넷 연결을 확인하고 다시 눌러주세요."}
   finally{$("fSave").disabled=false}
 });
