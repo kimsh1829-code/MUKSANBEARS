@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>먹산을 위한 맛집지도</title>
+<meta name="theme-color" content="#F5BE0B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="맛집지도">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<script>
+/* ===================== 설정 =====================
+   Firebase 설정을 아래 FIREBASE_CONFIG 에 붙여넣으면
+   친구들과 함께 쓰는 공유 지도가 됩니다.
+   비워두면 "이 기기에만 저장" 모드로 동작해요. */
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCQBSliKMpYw3gZVOUlNOtqJpCG1Ou2vtQ",
+  authDomain: "muksanbears.firebaseapp.com",
+  projectId: "muksanbears",
+  storageBucket: "muksanbears.firebasestorage.app",
+  messagingSenderId: "662847933596",
+  appId: "1:662847933596:web:ed49b17330567fa6b2b159"
+};
+/* 예시)
+window.FIREBASE_CONFIG = {
+  apiKey: "AIza...",
+  authDomain: "mukmap-xxxx.firebaseapp.com",
+  projectId: "mukmap-xxxx",
+  storageBucket: "mukmap-xxxx.appspot.com",
+  messagingSenderId: "1234567890",
+  appId: "1:1234567890:web:abcdef"
+};
+*/
+</script>
+<style>
+:root{
+  --bg:#F4F5F0; --panel:#FFFFFF; --ink:#1B1D1A; --muted:#626860; --chip:#E9ECE4; --rule:#DADED4;
+  --sign:#F5BE0B; --sign-ink:#1B1D1A; --red:#D7362B; --green:#03A94D; --focus:#2D6CDF;
+  --display:"Black Han Sans","Noto Sans KR","Apple SD Gothic Neo",sans-serif;
+  --body:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#141613; --panel:#1D201B; --ink:#EDEFE9; --muted:#A2A89E; --chip:#2A2E27; --rule:#30352D;
+  --red:#FF5E4D; --focus:#7FA8FF; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.gut{padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
+
+.app{display:flex;flex-direction:column;height:100%}
+header{background:var(--sign);color:var(--sign-ink);padding-top:env(safe-area-inset-top)}
+header .in{padding-block:12px 10px;display:flex;align-items:center;gap:12px}
+h1{font-family:var(--display);font-weight:400;font-size:clamp(24px,5vw,32px);line-height:1.1;margin:0}
+.titlebox{flex:1;min-width:0}
+.count{font-size:12.5px;font-weight:500;opacity:.8}
+.addbtn{background:var(--sign-ink);color:#FFF8DD;border:0;border-radius:999px;padding:10px 16px;font-weight:700;cursor:pointer;white-space:nowrap}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-block:8px;border-bottom:1px solid var(--rule);scrollbar-width:none;flex:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{border:1px solid var(--rule);background:var(--panel);border-radius:999px;padding:4px 12px;font-size:13px;white-space:nowrap;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+
+main{flex:1;min-height:0;display:grid;grid-template-rows:48% 1fr}
+#map{min-height:0;background:#e5e3df}
+.list{overflow-y:auto;background:var(--panel);border-top:1px solid var(--rule);padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+@media (min-width:860px){main{grid-template-rows:none;grid-template-columns:1fr 400px}.list{border-top:0;border-left:1px solid var(--rule)}}
+.mode{margin:10px 0 0;padding:8px 12px;border-radius:8px;background:var(--chip);font-size:12.5px;color:var(--muted)}
+.mode[hidden]{display:none}
+ul.places{list-style:none;margin:0;padding:0}
+.place{display:grid;grid-template-columns:34px minmax(0,1fr);gap:12px;padding:13px 0;border-bottom:1px solid var(--rule);cursor:pointer}
+.place.sel{background:linear-gradient(90deg,color-mix(in srgb,var(--sign) 22%,transparent),transparent)}
+.pname{font-weight:700;font-size:16px;overflow-wrap:anywhere}
+.meta{font-size:12.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:2px 10px}
+.pnote{font-size:13.5px;margin-top:2px;overflow-wrap:anywhere}
+.stars{color:#E0A800;letter-spacing:1px}
+.tag{font-size:11.5px;font-weight:700;border:1px solid currentColor;border-radius:4px;padding:0 5px;color:var(--red)}
+.tag.soft{color:var(--muted);border-style:dashed;font-weight:500}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.btn{border:1px solid var(--rule);background:var(--bg);border-radius:8px;padding:6px 11px;font-size:13px;cursor:pointer;text-decoration:none;color:var(--ink);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.btn.nv{background:var(--green);border-color:var(--green);color:#fff;font-weight:700}
+.empty{padding:24px 0;color:var(--muted);font-size:14px}
+.empty .btn{margin-top:10px}
+.listhead{display:flex;justify-content:space-between;align-items:baseline;padding-block:12px 2px}
+.listhead h2{font-size:13px;margin:0;color:var(--muted);font-weight:700;letter-spacing:.04em}
+
+.badge{display:grid;place-items:center;border-radius:50%;background:var(--c);color:#fff;font-weight:700;font-size:13px;width:34px;height:34px}
+.pin{width:30px;height:30px;font-size:13px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.pin.sel{transform:scale(1.3);border-color:var(--sign)}
+.pin.approx{border-style:dashed}
+.leaflet-container{font-family:var(--body)}
+.leaflet-popup-content{margin:12px 14px;font-size:14px;line-height:1.45;min-width:190px}
+.pop h3{margin:0 0 2px;font-size:16px}
+
+.pickbar{position:fixed;left:12px;right:12px;top:calc(12px + env(safe-area-inset-top));z-index:1500;background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;font-size:14px}
+.pickbar span{flex:1}
+.pickbar button{background:var(--sign);color:var(--sign-ink);border:0;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer}
+.pickbar button.sec{background:var(--bg);color:var(--ink);font-weight:400}
+
+.overlay{position:fixed;inset:0;z-index:2000;background:rgba(10,12,9,.45);display:flex;align-items:flex-end;justify-content:center}
+.overlay[hidden]{display:none}
+.sheet{background:var(--panel);width:100%;max-width:480px;max-height:92vh;overflow-y:auto;border-radius:16px 16px 0 0;padding:18px max(16px,env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+@media (min-width:860px){.overlay{align-items:center}.sheet{border-radius:16px}}
+.sheet h2{font-family:var(--display);font-weight:400;font-size:24px;margin:0 0 10px}
+form{display:flex;flex-direction:column;gap:11px}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:700;color:var(--muted)}
+input,select,textarea{border:1px solid var(--rule);background:var(--bg);border-radius:8px;padding:9px 10px;font-weight:400;color:var(--ink);font-size:16px;min-width:0;width:100%}
+textarea{resize:vertical}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-weight:400;font-size:12.5px;color:var(--muted)}
+.hint.ok{color:var(--green)}.hint.warn{color:var(--red)}
+.rating{display:flex;gap:2px}
+.rating button{border:0;background:none;font-size:26px;line-height:1;cursor:pointer;color:var(--rule);padding:0 2px}
+.rating button.on{color:#E0A800}
+.loc{display:flex;gap:10px;align-items:center;justify-content:space-between;border:1px dashed var(--rule);border-radius:8px;padding:9px 10px;font-size:14px}
+.loc .none{color:var(--red);font-weight:500}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.actions .sp{flex:1}
+.primary{background:var(--ink);color:var(--bg);border:0;border-radius:8px;padding:11px 20px;font-weight:700;cursor:pointer}
+.primary:disabled{opacity:.5}
+.ghost{background:none;border:1px solid var(--rule);border-radius:8px;padding:11px 14px;cursor:pointer}
+.danger{background:none;border:0;color:var(--red);padding:10px 4px;cursor:pointer}
+.err{color:var(--red);font-size:13px;margin:0}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;z-index:3000}
+.toast[hidden]{display:none}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><div class="in gut">
+    <div class="titlebox"><h1>먹산을 위한 맛집지도</h1><div class="count" id="count">불러오는 중…</div></div>
+    <button class="addbtn" id="addBtn" type="button">＋ 맛집 추가</button>
+  </div></header>
+  <nav class="chips gut" id="chips" aria-label="종류별 보기"></nav>
+  <main>
+    <div id="map" aria-label="맛집 지도"></div>
+    <section class="list gut" aria-label="맛집 목록">
+      <p class="mode" id="mode" hidden></p>
+      <div class="listhead"><h2 id="listTitle">전체 맛집</h2></div>
+      <ul class="places" id="places"></ul>
+      <div class="empty" id="empty" hidden></div>
+    </section>
+  </main>
+</div>
+
+<div class="pickbar" id="pickbar" hidden><span id="pickText">지도를 눌러 위치를 정하세요</span><button type="button" class="sec" id="pickCancel">취소</button><button type="button" id="pickDone" hidden>여기로</button></div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="formTitle">
+    <h2 id="formTitle">맛집 추가</h2>
+    <form id="form" novalidate>
+      <label>네이버지도 공유 내용 붙여넣기
+        <textarea id="fPaste" rows="3" placeholder="[네이버지도]&#10;그레인 제빵소 길동점&#10;서울 강동구 진황도로47길 67 1층&#10;https://naver.me/..."></textarea>
+        <span class="hint" id="fPasteMsg">네이버지도 앱 → 가게 → 공유 → 복사한 내용을 통째로 붙여넣으면 이름·주소·링크가 채워지고 핀이 찍혀요.</span>
+      </label>
+      <label>가게 이름 *<input id="fName" maxlength="60" autocomplete="off"></label>
+      <label>주소<input id="fAddr" maxlength="120" autocomplete="off" placeholder="예) 서울 용산구 한강대로62나길 24"></label>
+      <div class="loc"><span id="fLoc"></span><button type="button" class="btn" id="fPick">지도에서 찍기</button></div>
+      <div class="row">
+        <label>종류<select id="fCat"></select></label>
+        <label>대표 메뉴<input id="fMenu" maxlength="60" placeholder="예) 차돌박이"></label>
+      </div>
+      <label>한줄평<textarea id="fNote" rows="2" maxlength="200" placeholder="예) 2차로 딱. 웨이팅 각오"></textarea></label>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><div style="font-size:13px;font-weight:700;color:var(--muted)">별점</div><div class="rating" id="fRating"></div></div>
+        <label style="flex:1;min-width:140px">올린 사람<input id="fAuthor" maxlength="20" placeholder="닉네임"></label>
+      </div>
+      <label>네이버지도 링크<input id="fLink" maxlength="300" inputmode="url" placeholder="https://naver.me/..."></label>
+      <p class="err" id="fErr"></p>
+      <div class="actions">
+        <button type="button" class="danger" id="fDel" hidden>삭제</button>
+        <span class="sp"></span>
+        <button type="button" class="ghost" id="fCancel">취소</button>
+        <button type="submit" class="primary" id="fSave">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+/* ---------- 상수 ---------- */
+const CATS=[
+  {k:"한식",s:"한",c:"#D7362B"},{k:"고기",s:"고",c:"#8A3A1E"},{k:"분식",s:"분",c:"#D9487A"},
+  {k:"중식",s:"중",c:"#B8860B"},{k:"일식",s:"일",c:"#2D6CDF"},{k:"아시안",s:"아",c:"#178F6C"},
+  {k:"양식",s:"양",c:"#7A4FD0"},{k:"카페·디저트",s:"카",c:"#A0703F"},{k:"술집",s:"술",c:"#3F6A2C"},
+  {k:"미분류",s:"?",c:"#6B7280"}];
+const CMAP=Object.fromEntries(CATS.map(c=>[c.k,c]));
+const cat=k=>CMAP[k]||CMAP["미분류"];
+const SEED=[
+  {name:"봉산집 본점",cat:"고기",menu:"차돌박이, 양구이",addr:"서울 용산구 한강대로62나길 24"},
+  {name:"효뜨",cat:"아시안",menu:"쌀국수",addr:"서울 용산구 한강대로40가길 6",note:"용리단길 베트남 음식점"},
+  {name:"바통",cat:"양식",menu:"바통 슈카, 팝오버 팬케이크",addr:"서울 용산구 한강대로15길 33"},
+  {name:"정통우거지탕",cat:"한식",menu:"우거지탕, LA갈비",addr:"서울 용산구 새창로42길 8",note:"주말 휴무"},
+  {name:"등불",cat:"고기",menu:"매운갈비찜",addr:"서울 성동구 아차산로7길 4"},
+  {name:"그레인 제빵소 길동점",cat:"카페·디저트",addr:"서울 강동구 진황도로47길 67",link:"https://naver.me/xllwldHG"},
+  {name:"플로티아 베이커리 카페",cat:"카페·디저트",addr:"경기 하남시 감일남로 36-9",link:"https://naver.me/x6JoJemD"},
+  {name:"장블랑제리 낙성대본점",cat:"카페·디저트",addr:"서울 관악구 낙성대역길 8"},
+  {name:"홍종흔베이커리 미사역점",cat:"카페·디저트",addr:"경기 하남시 망월동 1135"},
+  {name:"다루마고로케",cat:"일식",menu:"고로케",addr:"경기 하남시 미사강변동로84번길 39"},
+  {name:"모모다인 오픈하우스",cat:"카페·디저트",addr:"경기 남양주시 진접읍 연평리 439-1"},
+  {name:"토라비",cat:"카페·디저트",menu:"파블로바",addr:"서울 마포구 와우산로29바길 24"},
+  {name:"에브리띵베이글",cat:"카페·디저트",menu:"베이글",addr:"서울 서대문구 연희로11길 29"},
+  {name:"소굴속 김포구래",cat:"카페·디저트",menu:"베이글",addr:"경기 김포시 김포한강4로 521"},
+  {name:"콩방앗간",cat:"카페·디저트",menu:"콩 도넛",addr:"강원 강릉시 주문진읍 학교담길 32-8"},
+  {name:"한입온",cat:"카페·디저트",addr:"경기 부천시 소사구 경인옛로 37",note:"위치 확인 필요"},
+  {name:"카페조이",cat:"카페·디저트"},
+  {name:"모면",cat:"미분류"},
+  {name:"라부",cat:"미분류"},
+  {name:"모녀가리비",cat:"한식",menu:"오징어순대, 가리비",addr:"강원 속초시 대포항희망길 53"},
+  {name:"속초생대구",cat:"한식",menu:"생대구탕",addr:"강원 속초시 영랑동 131-19",note:"화요일 휴무"},
+  {name:"차현희순두부청국장",cat:"한식",menu:"순두부, 청국장",addr:"강원 강릉시 초당동 6-7"},
+  {name:"감자적1번지",cat:"한식",menu:"감자전, 옹심이",addr:"강원 강릉시 공항길",note:"수요일 휴무"},
+  {name:"메시56",cat:"일식",menu:"장어덮밥, 회덮밥",addr:"강원 강릉시 초당순두부길 56"},
+  {name:"저팔계콧구멍",cat:"고기",menu:"주먹고기, 껍데기",addr:"강원 강릉시 곶감전길 12"},
+  {name:"엔드 투 앤드",cat:"카페·디저트",addr:"강원 강릉시 창해로 245"},
+  {name:"스테이인터뷰 카페",cat:"카페·디저트",addr:"강원 강릉시 강동면 율곡로 1458",note:"바다 뷰"},
+  {name:"속초오징어어시장 논현점",cat:"한식",menu:"모둠회",addr:"서울 강남구 강남대로122길 9"},
+  {name:"버터스카치 을지로",cat:"카페·디저트",menu:"소금빵",addr:"서울 중구 을지로35길 51-6"},
+  {name:"헤르츠로그",cat:"카페·디저트",menu:"과일 케이크",addr:"서울 강동구 성내동 118-32"},
+  {name:"레이크포레스트",cat:"카페·디저트"},
+  {name:"맛있는칼국수",cat:"한식",menu:"칼국수"},
+  {name:"테일",cat:"미분류"}];
+const $=id=>document.getElementById(id);
+function el(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+const stars=n=>n?"★".repeat(n)+"☆".repeat(5-n):"";
+const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+const hasLoc=p=>typeof p.lat==="number"&&typeof p.lng==="number";
+const ls={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+
+/* ---------- 네이버 연결 ---------- */
+function naverPlaceUrl(p){if(/^https:\/\//.test(p.link||""))return p.link;const area=(p.addr||"").split(/\s+/).slice(0,2).join(" ");return "https://map.naver.com/p/search/"+encodeURIComponent((area?area+" ":"")+p.name)}
+function naverRouteUrl(p){
+  if(!hasLoc(p))return naverPlaceUrl(p);
+  if(isMobile)return `nmap://route/public?dlat=${p.lat}&dlng=${p.lng}&dname=${encodeURIComponent(p.name)}&appname=${encodeURIComponent(location.hostname||"mukmap")}`;
+  return `https://map.naver.com/p/directions/-/${p.lng},${p.lat},${encodeURIComponent(p.name)},,/-/transit`;
+}
+function openRoute(p,ev){
+  if(!isMobile||!hasLoc(p))return; // 데스크톱은 기본 링크 동작
+  ev.preventDefault();
+  const start=Date.now();location.href=naverRouteUrl(p);
+  setTimeout(()=>{if(document.visibilityState==="visible"&&Date.now()-start<2500)location.href=`https://m.map.naver.com/route.nhn?menu=route&ename=${encodeURIComponent(p.name)}&ex=${p.lng}&ey=${p.lat}&pathType=1&showMap=true`},1500);
+}
+function routeLink(p){const a=el("a","btn nv","네이버 길찾기");a.href=naverRouteUrl(p);a.target="_blank";a.rel="noopener";a.onclick=ev=>{ev.stopPropagation();openRoute(p,ev)};return a}
+function placeLink(p){const a=el("a","btn","네이버지도 ↗");a.href=naverPlaceUrl(p);a.target="_blank";a.rel="noopener";a.onclick=ev=>ev.stopPropagation();return a}
+
+/* ---------- 지도 ---------- */
+const map=L.map("map",{zoomControl:true}).setView([37.53,127.0],11);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+const pinLayer=L.layerGroup().addTo(map);
+const markers={};
+function pinIcon(p,sel){const c=cat(p.cat);return L.divIcon({className:"",html:`<span class="badge pin${p.approx?" approx":""}${sel?" sel":""}" style="--c:${c.c}">${c.s}</span>`,iconSize:[30,30],iconAnchor:[15,15],popupAnchor:[0,-16]})}
+function popupFor(p){
+  const c=cat(p.cat),b=el("div","pop");b.append(el("h3",null,p.name));
+  const m=el("div","meta");m.append(el("span",null,c.k));if(p.rating)m.append(el("span","stars",stars(p.rating)));b.append(m);
+  if(p.addr)b.append(el("div","meta",p.addr));
+  if(p.approx)b.append(el("div","meta","※ 대략적인 위치예요"));
+  if(p.menu)b.append(el("div",null,"대표 메뉴 · "+p.menu));
+  if(p.note)b.append(el("div","pnote",p.note));
+  const bt=el("div","btns");bt.append(routeLink(p),placeLink(p));
+  const e=el("button","btn","수정");e.type="button";e.onclick=()=>{map.closePopup();openForm(p)};bt.append(e);
+  b.append(bt);return b;
+}
+
+/* ---------- 상태 & 렌더 ---------- */
+let places=[],filter="전체",selId=null,fitted=false,store=null;
+function render(){
+  const located=places.filter(hasLoc);
+  $("count").textContent=places.length?`맛집 ${places.length}곳`+(places.length-located.length?` · 위치 미정 ${places.length-located.length}곳`:""):"아직 등록된 맛집이 없어요";
+  // chips
+  const box=$("chips"),cnt={};places.forEach(p=>{const k=cat(p.cat).k;cnt[k]=(cnt[k]||0)+1});box.replaceChildren();
+  const mk=(k,c,n)=>{const b=el("button","chip");b.type="button";b.setAttribute("aria-pressed",String(filter===k));if(c){const d=el("span","dot");d.style.setProperty("--c",c);b.append(d)}b.append(k+" "+n);b.onclick=()=>{filter=k;render()};box.append(b)};
+  mk("전체",null,places.length);CATS.forEach(c=>{if(cnt[c.k])mk(c.k,c.c,cnt[c.k])});
+  const shown=places.filter(p=>filter==="전체"||cat(p.cat).k===filter);
+  $("listTitle").textContent=(filter==="전체"?"전체 맛집":filter)+" "+shown.length;
+  // markers
+  pinLayer.clearLayers();for(const k in markers)delete markers[k];
+  shown.filter(hasLoc).forEach(p=>{const m=L.marker([p.lat,p.lng],{icon:pinIcon(p,p.id===selId),title:p.name}).bindPopup(()=>popupFor(p),{maxWidth:280});m.on("click",()=>select(p.id,false));m.addTo(pinLayer);markers[p.id]=m});
+  // list
+  const ul=$("places");ul.replaceChildren();
+  shown.forEach(p=>{
+    const c=cat(p.cat),li=el("li","place"+(p.id===selId?" sel":""));li.tabIndex=0;li.dataset.id=p.id;
+    const b=el("span","badge",c.s);b.style.setProperty("--c",c.c);li.append(b);
+    const mid=el("div");mid.style.minWidth="0";mid.append(el("div","pname",p.name));
+    const m=el("div","meta");m.append(el("span",null,c.k));if(p.menu)m.append(el("span",null,p.menu));if(p.rating)m.append(el("span","stars",stars(p.rating)));
+    if(!hasLoc(p))m.append(el("span","tag","위치 미정"));else if(p.approx)m.append(el("span","tag soft","대략 위치"));
+    if(p.author)m.append(el("span",null,"by "+p.author));
+    mid.append(m);if(p.note)mid.append(el("div","pnote",p.note));
+    const bt=el("div","btns");bt.append(routeLink(p),placeLink(p));
+    if(!hasLoc(p)||p.approx){const x=el("button","btn",hasLoc(p)?"위치 바로잡기":"지도에 찍기");x.type="button";x.onclick=ev=>{ev.stopPropagation();form=toForm(p);formWasOpen=false;startPick()};bt.append(x)}
+    const e=el("button","btn","수정");e.type="button";e.onclick=ev=>{ev.stopPropagation();openForm(p)};bt.append(e);
+    mid.append(bt);li.append(mid);
+    const go=()=>{if(hasLoc(p))select(p.id,true);else{toast("아직 위치가 없어요. ‘지도에 찍기’로 정해주세요")}};
+    li.onclick=go;li.onkeydown=ev=>{if(ev.key==="Enter"&&ev.target===li)go()};
+    ul.append(li);
+  });
+  const em=$("empty");em.replaceChildren();
+  if(!places.length){em.hidden=false;em.append(el("div",null,"아직 등록된 맛집이 없어요. ‘맛집 추가’를 누르거나, 곰슐랭가이드 링크방 맛집 33곳을 한 번에 넣어보세요."));
+    const sb=el("button","btn nv","기본 맛집 넣기");sb.type="button";sb.onclick=seed;em.append(sb)}
+  else if(!shown.length){em.hidden=false;em.textContent=filter+" 맛집은 아직 없어요."}else em.hidden=true;
+  if(!fitted&&located.length){fitted=true;map.fitBounds(located.map(p=>[p.lat,p.lng]),{padding:[30,30],maxZoom:15})}
+}
+function select(id,fly){
+  selId=id;
+  document.querySelectorAll(".place").forEach(li=>li.classList.toggle("sel",li.dataset.id===id));
+  Object.entries(markers).forEach(([k,m])=>m.setIcon(pinIcon(places.find(x=>x.id===k),k===id)));
+  const m=markers[id];if(!m)return;
+  if(fly){
+    if(window.innerWidth<860)$("map").scrollIntoView({block:"nearest"});
+    map.flyTo(m.getLatLng(),Math.max(map.getZoom(),16),{duration:.7});
+    map.once("moveend",()=>m.openPopup());
+  }else{const li=document.querySelector(`.place[data-id="${CSS.escape(id)}"]`);li&&li.scrollIntoView({block:"nearest",behavior:"smooth"})}
+}
+
+/* ---------- 주소 → 좌표 (OpenStreetMap Nominatim) ---------- */
+const geoCache=ls.get("mukmap-geo",{});
+let lastGeo=0;
+async function nominatim(q){
+  if(geoCache[q]!==undefined)return geoCache[q];
+  const wait=Math.max(0,1100-(Date.now()-lastGeo));if(wait)await new Promise(r=>setTimeout(r,wait));lastGeo=Date.now();
+  try{
+    const r=await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&accept-language=ko&q="+encodeURIComponent(q));
+    const j=await r.json();const v=j[0]?{lat:+(+j[0].lat).toFixed(6),lng:+(+j[0].lon).toFixed(6)}:null;
+    geoCache[q]=v;ls.set("mukmap-geo",geoCache);return v;
+  }catch{return null}
+}
+function cleanAddr(a){return a.replace(/\s+\d+층.*$/,"").replace(/\s*\(.*\)\s*$/,"").replace(/,.*$/,"").trim()}
+async function geocode(addr,name){
+  if(!addr&&!name)return null;
+  const a=cleanAddr(addr||"");
+  if(a){const r=await nominatim(a);if(r)return {...r,approx:false}}
+  const parts=a.split(/\s+/);
+  if(name&&parts.length>=2){const r=await nominatim(name+" "+parts.slice(0,2).join(" "));if(r)return {...r,approx:false}}
+  if(parts.length>=3){const r=await nominatim(parts.slice(0,3).join(" "));if(r)return {...r,approx:true}}
+  if(parts.length>=2){const r=await nominatim(parts.slice(0,2).join(" "));if(r)return {...r,approx:true}}
+  return null;
+}
+const ADDR_RE=/^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|충청|전북|전남|전라|경북|경남|경상|제주)/;
+function parseShare(t){
+  const url=(t.match(/https?:\/\/\S+/)||[])[0]||"";
+  const lines=t.split(/\n/).map(s=>s.trim()).filter(s=>s&&!/^\[?\s*네이버\s*지도\s*\]?$/.test(s)&&!/^https?:\/\//.test(s));
+  const addr=lines.find(s=>ADDR_RE.test(s))||"";return {url,addr,name:lines.find(s=>s!==addr)||""};
+}
+
+/* ---------- 저장소: Firebase 또는 이 기기 ---------- */
+async function initStore(){
+  const cfg=window.FIREBASE_CONFIG;
+  if(cfg&&cfg.apiKey){
+    try{
+      const V="10.12.5",base=`https://www.gstatic.com/firebasejs/${V}/`;
+      const [{initializeApp},{getFirestore,collection,doc,onSnapshot,addDoc,updateDoc,deleteDoc},{getAuth,signInAnonymously,onAuthStateChanged}]=await Promise.all([import(base+"firebase-app.js"),import(base+"firebase-firestore.js"),import(base+"firebase-auth.js")]);
+      const app=initializeApp(cfg),db=getFirestore(app),auth=getAuth(app);
+      const uid=await new Promise((res,rej)=>{onAuthStateChanged(auth,u=>{if(u)res(u.uid)});signInAnonymously(auth).catch(rej)});
+      const col=collection(db,"places");
+      onSnapshot(col,s=>{places=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));render()},e=>{showMode("공유 지도를 불러오지 못했어요: "+e.code)});
+      return {shared:true,uid,
+        add:d=>addDoc(col,{...d,uid}),
+        update:(id,d)=>updateDoc(doc(db,"places",id),d),
+        remove:id=>deleteDoc(doc(db,"places",id)),
+        canDelete:p=>p.uid===uid};
+    }catch(e){console.error(e);showMode("Firebase 연결에 실패해서 이 기기에만 저장하는 모드로 열렸어요. 설정을 확인해 주세요.")}
+  }else showMode("지금은 이 기기에만 저장돼요. Firebase를 연결하면 친구들과 함께 쓸 수 있어요.");
+  const KEY="mukmap-local";
+  const save=()=>{ls.set(KEY,places);render()};
+  places=ls.get(KEY,[]);render();
+  return {shared:false,
+    add:async d=>{places.unshift({...d,id:"l"+Date.now().toString(36)+Math.random().toString(36).slice(2,6)});save()},
+    update:async(id,d)=>{places=places.map(p=>p.id===id?{...p,...d}:p);save()},
+    remove:async id=>{places=places.filter(p=>p.id!==id);save()},
+    canDelete:()=>true};
+}
+function showMode(t){const m=$("mode");m.textContent=t;m.hidden=false}
+
+let seeding=false;
+async function seed(){
+  if(seeding)return;seeding=true;let i=0;
+  for(const s of SEED){
+    i++;toast(`기본 맛집 넣는 중… ${i}/${SEED.length}`);
+    const g=await geocode(s.addr,s.name);
+    const d={name:s.name,cat:s.cat,menu:s.menu||"",note:s.note||"",rating:0,link:s.link||"",addr:s.addr||"",author:"곰슐랭",
+      lat:g?g.lat:null,lng:g?g.lng:null,approx:g?g.approx:false,createdAt:Date.now()-i*1000,updatedAt:Date.now()};
+    try{await store.add(d)}catch(e){toast("저장 실패: "+(e.code||e.message));break}
+  }
+  seeding=false;toast("기본 맛집을 넣었어요");
+}
+
+/* ---------- 추가/수정 폼 ---------- */
+let form=null,picking=false,pickMarker=null;
+CATS.forEach(c=>{const o=el("option",null,c.k);o.value=c.k;$("fCat").append(o)});
+for(let i=1;i<=5;i++){const b=el("button",null,"★");b.type="button";b.dataset.v=i;b.setAttribute("aria-label",i+"점");b.onclick=()=>{form.rating=form.rating===i?0:i;paintRating()};$("fRating").append(b)}
+function paintRating(){[...$("fRating").children].forEach(b=>b.classList.toggle("on",+b.dataset.v<=(form.rating||0)))}
+function toForm(p){return {id:p?.id||null,name:p?.name||"",cat:cat(p?.cat).k,menu:p?.menu||"",note:p?.note||"",rating:p?.rating||0,link:p?.link||"",addr:p?.addr||"",author:p?.author||ls.get("mukmap-nick",""),lat:p?.lat??null,lng:p?.lng??null,approx:!!p?.approx,uid:p?.uid}}
+function readForm(){for(const [k,id] of [["name","fName"],["addr","fAddr"],["cat","fCat"],["menu","fMenu"],["note","fNote"],["link","fLink"],["author","fAuthor"]])form[k]=$(id).value}
+function openForm(p){
+  if(p!==undefined)form=toForm(p);
+  $("formTitle").textContent=form.id?"맛집 수정":"맛집 추가";
+  for(const [k,id] of [["name","fName"],["addr","fAddr"],["cat","fCat"],["menu","fMenu"],["note","fNote"],["link","fLink"],["author","fAuthor"]])$(id).value=form[k];
+  if(p!==undefined){$("fPaste").value="";const m=$("fPasteMsg");m.className="hint";m.textContent="네이버지도 앱 → 가게 → 공유 → 복사한 내용을 통째로 붙여넣으면 이름·주소·링크가 채워지고 핀이 찍혀요."}
+  paintRating();paintLoc();
+  const del=$("fDel");del.hidden=!(form.id&&store.canDelete(form));del.textContent="삭제";delArmed=false;$("fErr").textContent="";
+  $("overlay").hidden=false;
+}
+function paintLoc(){const l=$("fLoc");l.replaceChildren();
+  if(hasLoc(form)){l.append(form.approx?"📍 대략적인 위치":"📍 위치 정해짐");$("fPick").textContent="지도에서 확인·수정"}
+  else{l.append(el("span","none","위치 미정"));$("fPick").textContent="지도에서 찍기"}}
+function closeForm(){$("overlay").hidden=true;form=null}
+function startPick(){
+  picking=true;$("overlay").hidden=true;$("pickbar").hidden=false;
+  $("pickText").textContent=hasLoc(form)?`‘${form.name||"새 맛집"}’ 핀을 끌어서 옮기거나 지도를 눌러 정하세요`:`‘${form.name||"새 맛집"}’ 위치를 지도에서 눌러주세요`;
+  $("pickDone").hidden=!hasLoc(form);
+  if(hasLoc(form)){placePickMarker(form.lat,form.lng);map.setView([form.lat,form.lng],17)}
+}
+function placePickMarker(lat,lng){
+  if(!pickMarker){pickMarker=L.marker([lat,lng],{draggable:true,icon:pinIcon({cat:form.cat},true),zIndexOffset:1000}).addTo(map);
+    pickMarker.on("dragend",()=>{const ll=pickMarker.getLatLng();form.lat=+ll.lat.toFixed(6);form.lng=+ll.lng.toFixed(6);form.approx=false})}
+  else pickMarker.setLatLng([lat,lng]);
+}
+function stopPick(){picking=false;$("pickbar").hidden=true;if(pickMarker){map.removeLayer(pickMarker);pickMarker=null}}
+map.on("click",e=>{if(!picking)return;form.lat=+e.latlng.lat.toFixed(6);form.lng=+e.latlng.lng.toFixed(6);form.approx=false;placePickMarker(form.lat,form.lng);$("pickDone").hidden=false;$("pickText").textContent="이 위치가 맞으면 ‘여기로’를 눌러주세요"});
+$("pickDone").onclick=async()=>{stopPick();if(form.id&&$("overlay").hidden&&!formWasOpen){await quickSaveLoc()}else openForm()};
+$("pickCancel").onclick=()=>{stopPick();if(formWasOpen)openForm();else form=null};
+let formWasOpen=false;
+$("fPick").onclick=()=>{readForm();formWasOpen=true;startPick()};
+async function quickSaveLoc(){try{await store.update(form.id,{lat:form.lat,lng:form.lng,approx:false,updatedAt:Date.now()});toast("위치를 저장했어요")}catch(e){toast("저장하지 못했어요")}form=null}
+$("fCancel").onclick=closeForm;
+$("overlay").addEventListener("click",e=>{if(e.target.id==="overlay")closeForm()});
+$("addBtn").onclick=()=>{formWasOpen=true;openForm(null)};
+
+async function locate(){
+  if(!form)return;
+  $("fPasteMsg").className="hint";$("fPasteMsg").textContent="주소로 위치 찾는 중…";
+  const g=await geocode(form.addr,form.name);if(!form)return;
+  const m=$("fPasteMsg");
+  if(g){Object.assign(form,g);paintLoc();m.className="hint ok";m.textContent=g.approx?"동네까지만 찾았어요. ‘지도에서 확인·수정’으로 정확한 자리를 찍어주세요.":"위치를 찾았어요. ‘지도에서 확인·수정’으로 맞는지 볼 수 있어요."}
+  else{m.className="hint warn";m.textContent="주소로 위치를 못 찾았어요. ‘지도에서 찍기’로 직접 정해주세요."}
+}
+$("fPaste").addEventListener("input",async()=>{
+  const t=$("fPaste").value;if(!t.trim())return;readForm();
+  const r=parseShare(t);if(r.name)form.name=r.name;if(r.addr)form.addr=r.addr;if(r.url)form.link=r.url;
+  openForm();
+  if(!r.addr){const m=$("fPasteMsg");m.className="hint warn";m.textContent="주소가 없어서 위치를 찾을 수 없어요. 공유 내용을 통째로 붙여넣거나 ‘지도에서 찍기’를 써주세요.";return}
+  form.lat=form.lng=null;await locate();
+});
+$("fAddr").addEventListener("change",async()=>{readForm();if(form.addr.trim()&&(!hasLoc(form)||form.approx))await locate()});
+let delArmed=false;
+$("fDel").onclick=async()=>{if(!delArmed){delArmed=true;$("fDel").textContent="한 번 더 누르면 삭제";return}
+  try{await store.remove(form.id);closeForm();toast("삭제했어요")}catch(e){$("fErr").textContent="삭제하지 못했어요. 올린 사람만 지울 수 있어요."}};
+$("form").addEventListener("submit",async e=>{
+  e.preventDefault();readForm();
+  const name=form.name.trim();if(!name){$("fErr").textContent="가게 이름을 적어주세요.";return}
+  const link=form.link.trim();if(link&&!/^https:\/\//.test(link)){$("fErr").textContent="링크는 https:// 로 시작해야 해요.";return}
+  if(form.author.trim())ls.set("mukmap-nick",form.author.trim());
+  const d={name,cat:form.cat,menu:form.menu.trim(),note:form.note.trim(),rating:form.rating||0,link,addr:form.addr.trim(),author:form.author.trim(),lat:hasLoc(form)?form.lat:null,lng:hasLoc(form)?form.lng:null,approx:!!form.approx,updatedAt:Date.now()};
+  $("fSave").disabled=true;
+  try{if(form.id)await store.update(form.id,d);else await store.add({...d,createdAt:Date.now()});const n=!form.id;closeForm();toast(n?"추가했어요":"저장했어요")}
+  catch(err){$("fErr").textContent="저장하지 못했어요. 인터넷 연결을 확인하고 다시 눌러주세요."}
+  finally{$("fSave").disabled=false}
+});
+document.addEventListener("keydown",e=>{if(e.key!=="Escape")return;if(picking)$("pickCancel").click();else if(!$("overlay").hidden)closeForm()});
+let tt;function toast(t){const x=$("toast");x.textContent=t;x.hidden=false;clearTimeout(tt);tt=setTimeout(()=>x.hidden=true,2400)}
+
+store=await initStore();
+</script>
+</body>
+</html>
