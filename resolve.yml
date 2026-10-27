@@ -1,0 +1,166 @@
+name: 링크로 추가한 맛집 정보 채우기
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: resolve-links
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: 링크 해석해서 Firestore 업데이트
+        env:
+          API_KEY: AIzaSyCQBSliKMpYw3gZVOUlNOtqJpCG1Ou2vtQ
+          PROJECT: muksanbears
+        run: |
+          cat > resolve.mjs <<'EOF'
+          const {API_KEY, PROJECT} = process.env;
+          const UA_M = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+          const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+          // ---------- Firestore 값 변환 ----------
+          const fromV = v => v == null ? null : ("stringValue" in v) ? v.stringValue : ("doubleValue" in v) ? +v.doubleValue
+            : ("integerValue" in v) ? +v.integerValue : ("booleanValue" in v) ? v.booleanValue : ("nullValue" in v) ? null : undefined;
+          const toV = x => x === null ? {nullValue: null} : typeof x === "boolean" ? {booleanValue: x}
+            : typeof x === "number" ? (Number.isInteger(x) ? {integerValue: String(x)} : {doubleValue: x}) : {stringValue: String(x)};
+
+          async function signIn() {
+            const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`,
+              {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({returnSecureToken: true})});
+            const j = await r.json(); if (!j.idToken) throw new Error("익명 로그인 실패: " + JSON.stringify(j)); return j.idToken;
+          }
+          async function listPlaces(token) {
+            let out = [], pageToken = "";
+            do {
+              const r = await fetch(`${BASE}/places?pageSize=300${pageToken ? "&pageToken=" + pageToken : ""}`, {headers: {Authorization: "Bearer " + token}});
+              const j = await r.json(); for (const d of (j.documents || [])) {
+                const f = {}; for (const [k, v] of Object.entries(d.fields || {})) f[k] = fromV(v);
+                out.push({path: d.name, id: d.name.split("/").pop(), ...f});
+              }
+              pageToken = j.nextPageToken || "";
+            } while (pageToken);
+            return out;
+          }
+          async function patch(token, path, data) {
+            const mask = Object.keys(data).map(k => "updateMask.fieldPaths=" + encodeURIComponent(k)).join("&");
+            const fields = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, toV(v)]));
+            const r = await fetch(`https://firestore.googleapis.com/v1/${path}?${mask}`,
+              {method: "PATCH", headers: {Authorization: "Bearer " + token, "Content-Type": "application/json"}, body: JSON.stringify({fields})});
+            if (!r.ok) throw new Error("업데이트 실패 " + r.status + " " + (await r.text()).slice(0, 200));
+          }
+
+          // ---------- 링크 해석 ----------
+          async function finalUrl(url) {
+            let u = url;
+            for (let i = 0; i < 6; i++) {
+              const r = await fetch(u, {redirect: "manual", headers: {"User-Agent": UA_M}});
+              const loc = r.headers.get("location");
+              if (r.status >= 300 && r.status < 400 && loc) { u = new URL(loc, u).href; continue; }
+              if (r.ok) { const t = await r.text(); const m = t.match(/(?:location\.(?:href|replace)\s*[=(]\s*|url=)["']?([^"'\s>]+)/i);
+                if (m && /naver|kakao/.test(m[1]) && i < 5 && m[1] !== u) { u = new URL(m[1], u).href; continue; } }
+              break;
+            }
+            return u;
+          }
+          const decode = s => s ? s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'") : s;
+          const pick = (t, re) => { const m = t.match(re); return m ? decode(m[1]) : ""; };
+
+          async function naverPlace(id, hint) {
+            const r = await fetch(`https://m.place.naver.com/place/${id}/home`, {headers: {"User-Agent": UA_M, "Accept-Language": "ko-KR,ko"}});
+            const t = await r.text();
+            const og = pick(t, /property="og:title"\s+content="([^"]+)"/);
+            let name = pick(t, /"name":"([^"]{1,60})","category"/) || (og ? og.replace(/\s*:\s*네이버.*$/, "") : "");
+            const addr = pick(t, /"roadAddress":"([^"]+)"/) || pick(t, /"address":"([^"]+)"/);
+            const category = pick(t, /"category":"([^"]+)"/);
+            let lng = +pick(t, /"x":"(1\d\d\.\d+)"/), lat = +pick(t, /"y":"(3\d\.\d+)"/);
+            if (hint && hint.lat) { lat = hint.lat; lng = hint.lng; }
+            console.log(`  네이버 ${id}: HTTP ${r.status}, 이름=${name}, 주소=${addr}, 종류=${category}, 좌표=${lat},${lng}`);
+            return {name, addr, category, lat: lat || null, lng: lng || null};
+          }
+          async function kakaoPlace(id) {
+            let name = "", addr = "", category = "";
+            for (const [u, h] of [[`https://place.map.kakao.com/main/v/${id}`, {}], [`https://place-api.map.kakao.com/places/panel3/${id}`, {pf: "web", Origin: "https://place.map.kakao.com", Referer: "https://place.map.kakao.com/"}]]) {
+              try {
+                const r = await fetch(u, {headers: {"User-Agent": UA_M, Accept: "application/json", ...h}});
+                const t = await r.text(); console.log(`  카카오 ${u}: HTTP ${r.status}, ${t.slice(0, 120).replace(/\s+/g, " ")}`);
+                if (!r.ok) continue; const j = JSON.parse(t);
+                const bi = j.basicInfo || j.summary || {};
+                name = name || bi.placenamefull || bi.name || "";
+                category = category || bi.category?.catename || bi.category?.name3 || bi.category?.name || "";
+                addr = addr || (bi.address?.newaddr?.newaddrfull ? (bi.address.region?.newaddrfullname || "") + " " + bi.address.newaddr.newaddrfull : "")
+                  || bi.address?.disp || j.summary?.address?.disp || "";
+                if (name && addr) break;
+              } catch (e) { console.log("  카카오 오류", e.message); }
+            }
+            if (!name) { try { const r = await fetch(`https://place.map.kakao.com/${id}`, {headers: {"User-Agent": UA_M}}); const t = await r.text();
+              name = pick(t, /property="og:title"\s+content="([^"]+)"/).replace(/\s*\|\s*카카오맵.*$/, ""); addr = addr || pick(t, /property="og:description"\s+content="([^"]+)"/); } catch {} }
+            return {name: name.trim(), addr: addr.trim(), category, lat: null, lng: null};
+          }
+          async function geocode(addr) {
+            if (!addr) return null;
+            const q = addr.replace(/\s+\d+층.*$/, "").replace(/\s*\(.*\)\s*$/, "");
+            await sleep(1100);
+            const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kr&accept-language=ko&q=" + encodeURIComponent(q),
+              {headers: {"User-Agent": "muksanbears-map/1.0 (github.com/kimsh1829-code/MUKSANBEARS)"}});
+            const j = await r.json(); return j[0] ? {lat: +(+j[0].lat).toFixed(6), lng: +(+j[0].lon).toFixed(6)} : null;
+          }
+          function catOf(category, name) {
+            const t = (category || "") + " " + (name || "");
+            if (/카페|커피|디저트|베이커리|제과|빵|베이글|도넛|케이크|아이스크림|빙수/.test(t)) return "카페·디저트";
+            if (/고기|육류|갈비|삼겹|돼지|소고기|한우|곱창|막창|정육|닭갈비/.test(t)) return "고기";
+            if (/일식|초밥|스시|라멘|우동|돈가스|돈까스|이자카야|오마카세|덮밥|일본/.test(t)) return "일식";
+            if (/중식|중국|짜장|짬뽕|마라|양꼬치|딤섬/.test(t)) return "중식";
+            if (/베트남|태국|아시아|인도|쌀국수|동남아/.test(t)) return "아시안";
+            if (/양식|이탈리|파스타|피자|햄버거|스테이크|브런치|프랑스|멕시/.test(t)) return "양식";
+            if (/분식|떡볶이|김밥/.test(t)) return "분식";
+            if (/술집|포차|호프|바\b|와인|맥주|주점|요리주점/.test(t)) return "술집";
+            if (/한식|국밥|찌개|탕|국수|냉면|백반|해장|회|생선|해물|순두부|칼국수|족발|보쌈|감자/.test(t)) return "한식";
+            return "미분류";
+          }
+          async function resolve(link) {
+            let url = link, hint = null;
+            if (/naver\.me|kko\.to|kakao\.link|han\.gl/.test(url)) url = await finalUrl(url);
+            console.log("  최종 주소:", url.slice(0, 160));
+            const la = url.match(/[?&]lat=([\d.]+)/), ln = url.match(/[?&]lng=([\d.]+)/);
+            if (la && ln) hint = {lat: +(+la[1]).toFixed(6), lng: +(+ln[1]).toFixed(6)};
+            let id = (url.match(/place\/(\d+)/) || url.match(/[?&](?:id|placeId|pinId)=(\d+)/) || url.match(/(?:restaurant|cafe|hairshop|accommodation|place)\/(\d+)/) || [])[1];
+            if (/naver\.com/.test(url) && id) return {...await naverPlace(id, hint), canonical: "https://map.naver.com/p/entry/place/" + id};
+            const kid = (url.match(/place\.map\.kakao\.com\/(?:m\/)?(\d+)/) || [])[1];
+            if (kid) return {...await kakaoPlace(kid), canonical: "https://place.map.kakao.com/" + kid};
+            return null;
+          }
+
+          // ---------- 실행 ----------
+          const token = await signIn();
+          const places = await listPlaces(token);
+          const todo = places.filter(p => p.link && (p.pending === true || p.name === "이름 미정 장소" || p.name === "링크로 추가한 장소") && (p.resolveTries || 0) < 5);
+          console.log(`전체 ${places.length}곳 중 처리할 링크 ${todo.length}곳`);
+          for (const p of todo) {
+            console.log(`- ${p.id} ${p.link}`);
+            const tries = (p.resolveTries || 0) + 1;
+            try {
+              const r = await resolve(p.link);
+              if (!r || !r.name) { await patch(token, p.path, {resolveTries: tries, pending: tries < 5}); console.log("  → 정보를 못 찾음"); continue; }
+              let {lat, lng} = r; let approx = false;
+              if (lat == null && typeof p.lat === "number" && !p.approx) { lat = p.lat; lng = p.lng; }
+              if (lat == null) { const g = await geocode(r.addr); if (g) { lat = g.lat; lng = g.lng; } }
+              const data = {name: r.name.slice(0, 60), addr: r.addr || p.addr || "", lat: lat ?? null, lng: lng ?? null, approx,
+                pending: false, resolveTries: tries, link: r.canonical || p.link, updatedAt: Date.now()};
+              if (!p.cat || p.cat === "미분류") data.cat = catOf(r.category, r.name);
+              await patch(token, p.path, data);
+              console.log(`  → 완료: ${data.name} / ${data.addr} / ${lat},${lng} / ${data.cat || p.cat}`);
+            } catch (e) {
+              console.log("  → 오류:", e.message);
+              try { await patch(token, p.path, {resolveTries: tries, pending: tries < 5}); } catch {}
+            }
+            await sleep(800);
+          }
+          EOF
+          node resolve.mjs

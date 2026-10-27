@@ -299,7 +299,8 @@ function render(){
     const b=el("span","badge",c.s);b.style.setProperty("--c",c.c);li.append(b);
     const mid=el("div");mid.style.minWidth="0";mid.append(el("div","pname",p.name));
     const m=el("div","meta");m.append(el("span",null,c.k));if(p.menu)m.append(el("span",null,p.menu));if(p.rating)m.append(el("span","stars",stars(p.rating)));
-    if(!hasLoc(p))m.append(el("span","tag","위치 미정"));else if(p.approx)m.append(el("span","tag soft","대략 위치"));
+    if(p.pending)m.append(el("span","tag soft","이름·위치 자동으로 찾는 중"));
+    else if(!hasLoc(p))m.append(el("span","tag","위치 미정"));else if(p.approx)m.append(el("span","tag soft","대략 위치"));
     if(p.author)m.append(el("span",null,"by "+p.author));
     mid.append(m);if(p.note)mid.append(el("div","pnote",p.note));
     const bt=el("div","btns");bt.append(routeLink(p),placeLink(p));
@@ -445,7 +446,7 @@ function guessCat(n){
 }
 function paintPreview(){
   const pv=$("fPreview");if(!form||form.id||(!form.name&&!form.link)){pv.hidden=true;return}
-  pv.hidden=false;$("pvName").textContent=form.name||"이름 미정 장소";
+  pv.hidden=false;$("pvName").textContent=form.name||(/kakao/.test(form.link||"")?"카카오맵 링크":"네이버지도 링크");
   $("pvSub").textContent=[cat(form.cat).k,form.addr].filter(Boolean).join(" · ");
 }
 function paintLoc(){const l=$("fLoc");l.replaceChildren();
@@ -495,8 +496,8 @@ $("fPaste").addEventListener("input",async()=>{
   if(!r.name&&!r.addr&&r.url){
     const m=$("fPasteMsg");
     if(r.lat!=null){form.lat=r.lat;form.lng=r.lng;form.approx=false;form.addr=await reverseArea(r.lat,r.lng);paintLoc();paintPreview();
-      m.className="hint ok";m.textContent="링크에서 정확한 위치를 찾았어요. 이름은 링크에 안 들어 있어서 ‘이름 미정’으로 올라가요. 그대로 ‘추가’를 누르면 돼요.";}
-    else{m.className="hint";m.textContent="링크로 추가할게요. 이 링크엔 위치 정보가 없어서 ‘위치 미정’으로 올라가요. 그대로 ‘추가’를 누르면 돼요.";paintPreview();}
+      m.className="hint ok";m.textContent="‘추가’를 누르면 끝이에요. 가게 이름과 정보는 몇 분 안에 자동으로 채워져요.";}
+    else{m.className="hint ok";m.textContent="‘추가’를 누르면 끝이에요. 가게 이름과 위치는 몇 분 안에 자동으로 채워져요.";paintPreview();}
     return}
   if(!r.addr){const m=$("fPasteMsg");m.className="hint warn";m.textContent="주소가 없어서 위치를 찾을 수 없어요. 공유 내용을 통째로 붙여넣거나 ‘지도에서 찍기’를 써주세요.";return}
   form.lat=form.lng=null;await locate();
@@ -507,13 +508,14 @@ $("fDel").onclick=async()=>{if(!delArmed){delArmed=true;$("fDel").textContent="�
   try{await store.remove(form.id);closeForm();toast("삭제했어요")}catch(e){$("fErr").textContent="삭제하지 못했어요. 올린 사람만 지울 수 있어요."}};
 $("form").addEventListener("submit",async e=>{
   e.preventDefault();readForm();
-  if(!form.name.trim()&&form.link)form.name="이름 미정 장소";
+  let pending=false;if(!form.name.trim()&&form.link){form.name="링크로 추가한 장소";pending=true}
   const name=form.name.trim();if(!name){$("fErr").textContent="가게 이름이 비어 있어요. 공유 내용을 붙여넣거나 ‘직접 입력’에서 이름을 적어주세요.";$("more").open=true;return}
   const link=form.link.trim();if(link&&!/^https:\/\//.test(link)){$("fErr").textContent="링크는 https:// 로 시작해야 해요.";return}
   if(form.author.trim())ls.set("mukmap-nick",form.author.trim());
   const d={name,cat:form.cat,menu:form.menu.trim(),note:form.note.trim(),rating:form.rating||0,link,addr:form.addr.trim(),author:form.author.trim(),lat:hasLoc(form)?form.lat:null,lng:hasLoc(form)?form.lng:null,approx:!!form.approx,updatedAt:Date.now()};
+  if(pending){d.pending=true;d.resolveTries=0}
   $("fSave").disabled=true;
-  try{if(form.id)await store.update(form.id,d);else await store.add({...d,createdAt:Date.now()});const n=!form.id;closeForm();toast(n?"추가했어요":"저장했어요")}
+  try{if(form.id)await store.update(form.id,d);else await store.add({...d,createdAt:Date.now()});const n=!form.id;closeForm();toast(n?(pending?"추가했어요. 이름·위치는 몇 분 안에 채워져요":"추가했어요"):"저장했어요")}
   catch(err){$("fErr").textContent="저장하지 못했어요. 인터넷 연결을 확인하고 다시 눌러주세요."}
   finally{$("fSave").disabled=false}
 });
