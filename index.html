@@ -258,7 +258,7 @@ function openRoute(p,ev){
   setTimeout(()=>{if(document.visibilityState==="visible"&&Date.now()-start<2500)location.href=`https://m.map.naver.com/route.nhn?menu=route&ename=${encodeURIComponent(p.name)}&ex=${p.lng}&ey=${p.lat}&pathType=1&showMap=true`},1500);
 }
 function routeLink(p){const a=el("a","btn nv","네이버 길찾기");a.href=naverRouteUrl(p);a.target="_blank";a.rel="noopener";a.onclick=ev=>{ev.stopPropagation();openRoute(p,ev)};return a}
-function placeLink(p){const a=el("a","btn","네이버지도 ↗");a.href=naverPlaceUrl(p);a.target="_blank";a.rel="noopener";a.onclick=ev=>ev.stopPropagation();return a}
+function placeLink(p){const a=el("a","btn",/kakao/.test(p.link||"")?"카카오맵 ↗":"네이버지도 ↗");a.href=naverPlaceUrl(p);a.target="_blank";a.rel="noopener";a.onclick=ev=>ev.stopPropagation();return a}
 
 /* ---------- 지도 ---------- */
 const map=L.map("map",{zoomControl:true}).setView([37.53,127.0],11);
@@ -353,9 +353,21 @@ async function geocode(addr,name){
 }
 const ADDR_RE=/^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|충청|전북|전남|전라|경북|경남|경상|제주)/;
 function parseShare(t){
-  const url=(t.match(/https?:\/\/\S+/)||[])[0]||"";
-  const lines=t.split(/\n/).map(s=>s.trim()).filter(s=>s&&!/^\[?\s*네이버\s*지도\s*\]?$/.test(s)&&!/^https?:\/\//.test(s));
-  const addr=lines.find(s=>ADDR_RE.test(s))||"";return {url,addr,name:lines.find(s=>s!==addr)||""};
+  t=t.replace(/\[([^\]]*)\]\((https?:[^)\s]+)\)/g,"$2"); // 마크다운 링크 정리
+  let url=(t.match(/https?:\/\/[^\s)]+/)||[])[0]||"";
+  const lines=t.split(/\n/).map(s=>s.trim()).filter(s=>s&&!/^\[?\s*네이버\s*지도\s*\]?$/.test(s)&&!/^https?:\/\//.test(s)&&!/^(장소|place)\s*-\s*(네이버지도|카카오맵)$/i.test(s));
+  const addr=lines.find(s=>ADDR_RE.test(s))||"";
+  let lat=null,lng=null,src="";
+  if(/map\.naver\.com/.test(url)){src="naver";
+    const la=url.match(/[?&]lat=([\d.]+)/),ln=url.match(/[?&]lng=([\d.]+)/);if(la&&ln){lat=+(+la[1]).toFixed(6);lng=+(+ln[1]).toFixed(6)}
+    const id=url.match(/place\/(\d+)/);if(id)url="https://map.naver.com/p/entry/place/"+id[1];}
+  else if(/place\.map\.kakao\.com\/(\d+)/.test(url)){src="kakao";url="https://place.map.kakao.com/"+url.match(/place\.map\.kakao\.com\/(\d+)/)[1]}
+  else if(/naver\.me/.test(url))src="naver";
+  return {url,addr,name:lines.find(s=>s!==addr)||"",lat,lng,src};
+}
+async function reverseArea(lat,lng){
+  try{const r=await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ko&zoom=16`);const j=await r.json();const a=j.address||{};
+    return [a.province||a.state,a.city||a.county,a.borough||a.city_district,a.suburb||a.quarter||a.town||a.village].filter(Boolean).filter((v,i,arr)=>arr.indexOf(v)===i).join(" ")}catch{return ""}
 }
 
 /* ---------- 저장소: Firebase 또는 이 기기 ---------- */
@@ -432,8 +444,8 @@ function guessCat(n){
   return "미분류";
 }
 function paintPreview(){
-  const pv=$("fPreview");if(!form||form.id||!form.name){pv.hidden=true;return}
-  pv.hidden=false;$("pvName").textContent=form.name;
+  const pv=$("fPreview");if(!form||form.id||(!form.name&&!form.link)){pv.hidden=true;return}
+  pv.hidden=false;$("pvName").textContent=form.name||"이름 미정 장소";
   $("pvSub").textContent=[cat(form.cat).k,form.addr].filter(Boolean).join(" · ");
 }
 function paintLoc(){const l=$("fLoc");l.replaceChildren();
@@ -480,7 +492,12 @@ $("fPaste").addEventListener("input",async()=>{
   if(r.name&&form.cat==="미분류")form.cat=guessCat(r.name);
   $("more").dataset.keep=r.name?"":"1";
   openForm();delete $("more").dataset.keep;
-  if(!r.name&&!r.addr&&r.url){const m=$("fPasteMsg");m.className="hint warn";m.textContent="링크만으로는 가게 정보를 읽을 수 없어요. 네이버지도 앱에서 공유 → ‘복사’를 눌러 이름·주소가 같이 복사되게 해주세요. 또는 아래 ‘직접 입력’을 열어 이름만 적어도 돼요.";$("more").open=true;return}
+  if(!r.name&&!r.addr&&r.url){
+    const m=$("fPasteMsg");
+    if(r.lat!=null){form.lat=r.lat;form.lng=r.lng;form.approx=false;form.addr=await reverseArea(r.lat,r.lng);paintLoc();paintPreview();
+      m.className="hint ok";m.textContent="링크에서 정확한 위치를 찾았어요. 이름은 링크에 안 들어 있어서 ‘이름 미정’으로 올라가요. 그대로 ‘추가’를 누르면 돼요.";}
+    else{m.className="hint";m.textContent="링크로 추가할게요. 이 링크엔 위치 정보가 없어서 ‘위치 미정’으로 올라가요. 그대로 ‘추가’를 누르면 돼요.";paintPreview();}
+    return}
   if(!r.addr){const m=$("fPasteMsg");m.className="hint warn";m.textContent="주소가 없어서 위치를 찾을 수 없어요. 공유 내용을 통째로 붙여넣거나 ‘지도에서 찍기’를 써주세요.";return}
   form.lat=form.lng=null;await locate();
 });
@@ -490,6 +507,7 @@ $("fDel").onclick=async()=>{if(!delArmed){delArmed=true;$("fDel").textContent="�
   try{await store.remove(form.id);closeForm();toast("삭제했어요")}catch(e){$("fErr").textContent="삭제하지 못했어요. 올린 사람만 지울 수 있어요."}};
 $("form").addEventListener("submit",async e=>{
   e.preventDefault();readForm();
+  if(!form.name.trim()&&form.link)form.name="이름 미정 장소";
   const name=form.name.trim();if(!name){$("fErr").textContent="가게 이름이 비어 있어요. 공유 내용을 붙여넣거나 ‘직접 입력’에서 이름을 적어주세요.";$("more").open=true;return}
   const link=form.link.trim();if(link&&!/^https:\/\//.test(link)){$("fErr").textContent="링크는 https:// 로 시작해야 해요.";return}
   if(form.author.trim())ls.set("mukmap-nick",form.author.trim());
