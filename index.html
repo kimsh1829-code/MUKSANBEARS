@@ -44,6 +44,7 @@ window.FIREBASE_CONFIG = {
   --bg:#141613; --panel:#1D201B; --ink:#EDEFE9; --muted:#A2A89E; --chip:#2A2E27; --rule:#30352D;
   --red:#FF5E4D; --focus:#7FA8FF; color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
 button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -93,7 +94,7 @@ ul.places{list-style:none;margin:0;padding:0}
 .leaflet-popup-content{margin:12px 14px;font-size:14px;line-height:1.45;min-width:190px}
 .pop h3{margin:0 0 2px;font-size:16px}
 
-.pickbar{position:fixed;left:12px;right:12px;top:calc(12px + env(safe-area-inset-top));z-index:1500;background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;font-size:14px}
+.pickbar{position:fixed;left:12px;right:12px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:560px;margin:0 auto;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:1500;background:var(--ink);color:var(--bg);border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:center;font-size:14px}
 .pickbar span{flex:1}
 .pickbar button{background:var(--sign);color:var(--sign-ink);border:0;border-radius:6px;padding:6px 12px;font-weight:700;cursor:pointer}
 .pickbar button.sec{background:var(--bg);color:var(--ink);font-weight:400}
