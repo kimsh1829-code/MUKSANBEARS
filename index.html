@@ -109,6 +109,14 @@ label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:700;
 input,select,textarea{border:1px solid var(--rule);background:var(--bg);border-radius:8px;padding:9px 10px;font-weight:400;color:var(--ink);font-size:16px;min-width:0;width:100%}
 textarea{resize:vertical}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.quick{display:flex;flex-direction:column;gap:6px}
+.pastebtn{background:var(--sign);color:var(--sign-ink);border:0;border-radius:10px;padding:14px;font-weight:700;font-size:16px;cursor:pointer}
+.preview{border:1px solid var(--rule);border-radius:10px;padding:10px 12px;background:var(--bg)}
+.pv-name{font-weight:700;font-size:17px}
+.pv-sub{font-size:13px;color:var(--muted)}
+details#more{border-top:1px solid var(--rule);padding-top:8px}
+details#more summary{cursor:pointer;font-size:13.5px;color:var(--muted);font-weight:500;padding:4px 0}
+.morebody{display:flex;flex-direction:column;gap:11px;margin-top:8px}
 .hint{font-weight:400;font-size:12.5px;color:var(--muted)}
 .hint.ok{color:var(--green)}.hint.warn{color:var(--red)}
 .rating{display:flex;gap:2px}
@@ -151,13 +159,17 @@ textarea{resize:vertical}
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="formTitle">
     <h2 id="formTitle">맛집 추가</h2>
     <form id="form" novalidate>
-      <label>네이버지도 공유 내용 붙여넣기
-        <textarea id="fPaste" rows="3" placeholder="[네이버지도]&#10;그레인 제빵소 길동점&#10;서울 강동구 진황도로47길 67 1층&#10;https://naver.me/..."></textarea>
-        <span class="hint" id="fPasteMsg">네이버지도 앱 → 가게 → 공유 → 복사한 내용을 통째로 붙여넣으면 이름·주소·링크가 채워지고 핀이 찍혀요.</span>
-      </label>
+      <div class="quick" id="quick">
+        <button type="button" class="pastebtn" id="fClip">📋 복사한 내용 붙여넣기</button>
+        <textarea id="fPaste" rows="2" aria-label="네이버지도 공유 내용" placeholder="또는 여기에 길게 눌러 붙여넣기"></textarea>
+        <span class="hint" id="fPasteMsg">네이버지도 앱에서 가게 → 공유 → <b>복사</b>, 또는 카톡방에 올라온 네이버지도 메시지를 길게 눌러 <b>복사</b>한 뒤 위 버튼을 누르세요.</span>
+      </div>
+      <div class="preview" id="fPreview" hidden><div class="pv-name" id="pvName"></div><div class="pv-sub" id="pvSub"></div></div>
+      <div class="loc"><span id="fLoc"></span><button type="button" class="btn" id="fPick">지도에서 찍기</button></div>
+      <details id="more"><summary>직접 입력·수정 (이름, 주소, 종류, 메뉴, 별점)</summary>
+      <div class="morebody">
       <label>가게 이름 *<input id="fName" maxlength="60" autocomplete="off"></label>
       <label>주소<input id="fAddr" maxlength="120" autocomplete="off" placeholder="예) 서울 용산구 한강대로62나길 24"></label>
-      <div class="loc"><span id="fLoc"></span><button type="button" class="btn" id="fPick">지도에서 찍기</button></div>
       <div class="row">
         <label>종류<select id="fCat"></select></label>
         <label>대표 메뉴<input id="fMenu" maxlength="60" placeholder="예) 차돌박이"></label>
@@ -168,6 +180,7 @@ textarea{resize:vertical}
         <label style="flex:1;min-width:140px">올린 사람<input id="fAuthor" maxlength="20" placeholder="닉네임"></label>
       </div>
       <label>네이버지도 링크<input id="fLink" maxlength="300" inputmode="url" placeholder="https://naver.me/..."></label>
+      </div></details>
       <p class="err" id="fErr"></p>
       <div class="actions">
         <button type="button" class="danger" id="fDel" hidden>삭제</button>
@@ -398,10 +411,30 @@ function openForm(p){
   if(p!==undefined)form=toForm(p);
   $("formTitle").textContent=form.id?"맛집 수정":"맛집 추가";
   for(const [k,id] of [["name","fName"],["addr","fAddr"],["cat","fCat"],["menu","fMenu"],["note","fNote"],["link","fLink"],["author","fAuthor"]])$(id).value=form[k];
-  if(p!==undefined){$("fPaste").value="";const m=$("fPasteMsg");m.className="hint";m.textContent="네이버지도 앱 → 가게 → 공유 → 복사한 내용을 통째로 붙여넣으면 이름·주소·링크가 채워지고 핀이 찍혀요."}
-  paintRating();paintLoc();
+  if(p!==undefined){$("fPaste").value="";const m=$("fPasteMsg");m.className="hint";m.innerHTML="네이버지도 앱에서 가게 → 공유 → <b>복사</b>, 또는 카톡방에 올라온 네이버지도 메시지를 길게 눌러 <b>복사</b>한 뒤 위 버튼을 누르세요."}
+  paintRating();paintLoc();paintPreview();
+  $("quick").hidden=!!form.id;$("more").open=!!form.id||(!!$("more").dataset.keep);
+  $("fSave").textContent=form.id?"저장":"추가";
   const del=$("fDel");del.hidden=!(form.id&&store.canDelete(form));del.textContent="삭제";delArmed=false;$("fErr").textContent="";
   $("overlay").hidden=false;
+}
+function guessCat(n){
+  const t=n||"";
+  if(/베이커리|제빵|빵|베이글|카페|커피|디저트|케이크|도넛|마카롱|파블로바|소금빵|coffee|cafe|bakery/i.test(t))return "카페·디저트";
+  if(/고기|갈비|삼겹|정육|한우|곱창|막창|차돌|숯불|돼지|소고기|BBQ/i.test(t))return "고기";
+  if(/스시|초밥|라멘|우동|돈카츠|돈까스|이자카야|오마카세|소바|텐동|고로케/.test(t))return "일식";
+  if(/중국|짜장|짬뽕|마라|양꼬치|딤섬|반점|훠궈/.test(t))return "중식";
+  if(/쌀국수|베트남|태국|팟타이|인도|커리|분짜/.test(t))return "아시안";
+  if(/파스타|피자|버거|스테이크|브런치|비스트로|트라토리아/.test(t))return "양식";
+  if(/떡볶이|김밥|분식|순대/.test(t))return "분식";
+  if(/포차|술집|주점|호프|와인바|바$|펍/.test(t))return "술집";
+  if(/국밥|탕|찌개|국수|칼국수|냉면|순두부|백반|한정식|해장|곰탕|밀면|막국수|횟집|회|대구|청국장|감자/.test(t))return "한식";
+  return "미분류";
+}
+function paintPreview(){
+  const pv=$("fPreview");if(!form||form.id||!form.name){pv.hidden=true;return}
+  pv.hidden=false;$("pvName").textContent=form.name;
+  $("pvSub").textContent=[cat(form.cat).k,form.addr].filter(Boolean).join(" · ");
 }
 function paintLoc(){const l=$("fLoc");l.replaceChildren();
   if(hasLoc(form)){l.append(form.approx?"📍 대략적인 위치":"📍 위치 정해짐");$("fPick").textContent="지도에서 확인·수정"}
@@ -434,13 +467,20 @@ async function locate(){
   $("fPasteMsg").className="hint";$("fPasteMsg").textContent="주소로 위치 찾는 중…";
   const g=await geocode(form.addr,form.name);if(!form)return;
   const m=$("fPasteMsg");
-  if(g){Object.assign(form,g);paintLoc();m.className="hint ok";m.textContent=g.approx?"동네까지만 찾았어요. ‘지도에서 확인·수정’으로 정확한 자리를 찍어주세요.":"위치를 찾았어요. ‘지도에서 확인·수정’으로 맞는지 볼 수 있어요."}
+  if(g){Object.assign(form,g);paintLoc();m.className="hint ok";m.textContent=g.approx?"동네까지만 찾았어요. 그대로 ‘추가’를 눌러도 되고, 나중에 핀을 옮겨도 돼요.":"위치까지 찾았어요. 이대로 ‘추가’를 누르면 끝이에요."}
   else{m.className="hint warn";m.textContent="주소로 위치를 못 찾았어요. ‘지도에서 찍기’로 직접 정해주세요."}
 }
+$("fClip").onclick=async()=>{
+  try{const t=await navigator.clipboard.readText();if(!t||!t.trim()){toast("복사한 내용이 없어요");return}$("fPaste").value=t;$("fPaste").dispatchEvent(new Event("input"))}
+  catch{toast("붙여넣기 권한이 없어요. 아래 칸을 길게 눌러 붙여넣어 주세요");$("fPaste").focus()}
+};
 $("fPaste").addEventListener("input",async()=>{
   const t=$("fPaste").value;if(!t.trim())return;readForm();
   const r=parseShare(t);if(r.name)form.name=r.name;if(r.addr)form.addr=r.addr;if(r.url)form.link=r.url;
-  openForm();
+  if(r.name&&form.cat==="미분류")form.cat=guessCat(r.name);
+  $("more").dataset.keep=r.name?"":"1";
+  openForm();delete $("more").dataset.keep;
+  if(!r.name&&!r.addr&&r.url){const m=$("fPasteMsg");m.className="hint warn";m.textContent="링크만으로는 가게 정보를 읽을 수 없어요. 네이버지도 앱에서 공유 → ‘복사’를 눌러 이름·주소가 같이 복사되게 해주세요. 또는 아래 ‘직접 입력’을 열어 이름만 적어도 돼요.";$("more").open=true;return}
   if(!r.addr){const m=$("fPasteMsg");m.className="hint warn";m.textContent="주소가 없어서 위치를 찾을 수 없어요. 공유 내용을 통째로 붙여넣거나 ‘지도에서 찍기’를 써주세요.";return}
   form.lat=form.lng=null;await locate();
 });
@@ -450,7 +490,7 @@ $("fDel").onclick=async()=>{if(!delArmed){delArmed=true;$("fDel").textContent="�
   try{await store.remove(form.id);closeForm();toast("삭제했어요")}catch(e){$("fErr").textContent="삭제하지 못했어요. 올린 사람만 지울 수 있어요."}};
 $("form").addEventListener("submit",async e=>{
   e.preventDefault();readForm();
-  const name=form.name.trim();if(!name){$("fErr").textContent="가게 이름을 적어주세요.";return}
+  const name=form.name.trim();if(!name){$("fErr").textContent="가게 이름이 비어 있어요. 공유 내용을 붙여넣거나 ‘직접 입력’에서 이름을 적어주세요.";$("more").open=true;return}
   const link=form.link.trim();if(link&&!/^https:\/\//.test(link)){$("fErr").textContent="링크는 https:// 로 시작해야 해요.";return}
   if(form.author.trim())ls.set("mukmap-nick",form.author.trim());
   const d={name,cat:form.cat,menu:form.menu.trim(),note:form.note.trim(),rating:form.rating||0,link,addr:form.addr.trim(),author:form.author.trim(),lat:hasLoc(form)?form.lat:null,lng:hasLoc(form)?form.lng:null,approx:!!form.approx,updatedAt:Date.now()};
